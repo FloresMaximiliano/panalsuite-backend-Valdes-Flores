@@ -36,6 +36,24 @@ const TICKET_SELECT_FIELDS = `
   history
 `;
 
+// Middleware para verificar el JWT emitido en /api/auth/login
+function verifyToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ message: 'Token requerido' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: 'Token inválido o expirado' });
+    }
+    req.user = decoded;
+    next();
+  });
+}
+
 // Crea usuarios de prueba para los 5 roles de RoleExtensions.kt si la tabla está vacía
 async function seedInitialUsers() {
   try {
@@ -58,7 +76,7 @@ async function seedInitialUsers() {
   }
 }
 
-// 1. POST api/auth/login
+// 1. POST api/auth/login (pública)
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -87,7 +105,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // 2. GET api/users/{id}
-app.get('/api/users/:id', async (req, res) => {
+app.get('/api/users/:id', verifyToken, async (req, res) => {
   const userId = parseInt(req.params.id, 10);
   try {
     const result = await pool.query(
@@ -105,7 +123,7 @@ app.get('/api/users/:id', async (req, res) => {
 });
 
 // 3. GET api/tickets
-app.get('/api/tickets', async (req, res) => {
+app.get('/api/tickets', verifyToken, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT ${TICKET_SELECT_FIELDS}
@@ -120,7 +138,7 @@ app.get('/api/tickets', async (req, res) => {
 });
 
 // 4. POST api/tickets
-app.post('/api/tickets', async (req, res) => {
+app.post('/api/tickets', verifyToken, async (req, res) => {
   const {
     idRequest,
     flowType,
@@ -176,7 +194,7 @@ app.post('/api/tickets', async (req, res) => {
 });
 
 // 5. PUT api/tickets/{id}
-app.put('/api/tickets/:id', async (req, res) => {
+app.put('/api/tickets/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
   const {
     flowType,
@@ -231,6 +249,26 @@ app.put('/api/tickets/:id', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Error al actualizar ticket' });
+  }
+});
+
+// 6. DELETE api/tickets/{id}
+app.delete('/api/tickets/:id', verifyToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'DELETE FROM tickets WHERE id_request = $1 RETURNING id_request',
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Ticket no encontrado' });
+    }
+
+    res.status(200).json({ message: 'Ticket eliminado correctamente', idRequest: id });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Error al eliminar ticket' });
   }
 });
 
